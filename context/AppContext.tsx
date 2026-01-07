@@ -339,10 +339,12 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   const addCircle = async (circle: ShareCircle) => {
+      // FIX: Do NOT send 'id' field if it is a manual string like 'c-123456'.
+      // Let Supabase generate a proper UUID.
       const { data: circleData, error: circleError } = await supabase
           .from('circles')
           .insert([{
-              id: circle.id, 
+              // id: circle.id,  <-- REMOVED manual ID
               name: circle.name,
               principal: circle.principal,
               total_slots: circle.totalSlots,
@@ -355,12 +357,13 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           .single();
 
       if (circleError) {
-          console.error(circleError);
-          addNotification('ผิดพลาด', 'สร้างวงแชร์ไม่สำเร็จ', 'WARNING');
+          console.error('Error creating circle:', circleError);
+          // Show the actual error message from Supabase to help debugging
+          addNotification('บันทึกไม่สำเร็จ', `Supabase Error: ${circleError.message} (${circleError.code})`, 'WARNING');
           return;
       }
 
-      const realCircleId = circleData.id;
+      const realCircleId = circleData.id; // Use the UUID returned from DB
 
       if (circle.members.length > 0) {
           const membersPayload = circle.members.map(m => ({
@@ -370,7 +373,7 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
               status: 'ALIVE'
           }));
           const { error: memError } = await supabase.from('circle_members').insert(membersPayload);
-          if (memError) console.error(memError);
+          if (memError) console.error('Error adding members:', memError);
       }
 
       await supabase.from('rounds').insert([{
@@ -383,12 +386,16 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       }]);
 
       addNotification('สร้างวงสำเร็จ', `เริ่มใช้งานวง "${circle.name}" ได้ทันที`, 'SUCCESS');
+      // No need to manually update state, realtime subscription will catch it.
   };
 
   const deleteCircle = async (id: string) => {
       const { error } = await supabase.from('circles').delete().eq('id', id);
       if (!error) {
           addNotification('ลบข้อมูล', 'ลบวงแชร์ออกจากระบบแล้ว', 'WARNING');
+      } else {
+          console.error(error);
+          addNotification('ลบไม่สำเร็จ', error.message, 'WARNING');
       }
   };
 
@@ -399,7 +406,7 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       const currentRoundNum = circle.rounds.length;
 
       try {
-        await supabase
+        const { error: updateError } = await supabase
             .from('circle_members')
             .update({ 
                 status: 'DEAD',
@@ -408,6 +415,8 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
             })
             .eq('circle_id', circleId)
             .eq('member_id', winnerId);
+        
+        if (updateError) throw updateError;
 
         const currentRoundObj = circle.rounds.find(r => r.roundNumber === currentRoundNum);
         if (currentRoundObj && currentRoundObj.id) {
@@ -441,9 +450,9 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
 
         addNotification('บันทึกผลเปีย', `บันทึกผู้ชนะเรียบร้อยแล้ว`, 'SUCCESS');
 
-      } catch (err) {
+      } catch (err: any) {
           console.error(err);
-          addNotification('ผิดพลาด', 'บันทึกผลการเปียไม่สำเร็จ', 'WARNING');
+          addNotification('ผิดพลาด', `บันทึกผลการเปียไม่สำเร็จ: ${err.message}`, 'WARNING');
       }
   };
 
@@ -465,10 +474,11 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           }
       }
 
+      // FIX: Do NOT send 'id' field manually. Let DB generate UUID.
       const { error } = await supabase.from('transactions').insert([{
-          id: `tx-${Date.now()}`,
+          // id: `tx-${Date.now()}`, <-- REMOVED
           circle_id: circleId,
-          round_number: 0, 
+          round_number: 0, // Should be current round, but 0 for general payment is ok for now
           member_id: user?.id,
           amount_expected: amount,
           amount_paid: amount,
@@ -480,7 +490,8 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       if (!error) {
           addNotification('รับยอดโอน', 'ระบบบันทึกสลิปเรียบร้อยแล้ว', 'SUCCESS');
       } else {
-          addNotification('ผิดพลาด', 'บันทึกการโอนเงินไม่สำเร็จ', 'WARNING');
+          console.error(error);
+          addNotification('ผิดพลาด', `บันทึกการโอนเงินไม่สำเร็จ: ${error.message}`, 'WARNING');
       }
   };
 

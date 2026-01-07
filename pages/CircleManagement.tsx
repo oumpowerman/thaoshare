@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Users, Calendar, Trash2, X, Check, AlertCircle, Trophy, Clock, ChevronRight, Download, FileText, UserPlus } from 'lucide-react';
+import { Plus, Users, Calendar, Trash2, X, Check, AlertCircle, Trophy, Clock, ChevronRight, Download, FileText, UserPlus, Loader2 } from 'lucide-react';
 import { ShareType, ShareCircle, SharePeriod, CircleMember } from '../types';
 import { useAppContext } from '../context/AppContext';
 
@@ -9,6 +9,7 @@ const CircleManagement = () => {
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewingCircle, setViewingCircle] = useState<ShareCircle | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Create Form State
   const [newCircleName, setNewCircleName] = useState('');
@@ -67,25 +68,25 @@ const CircleManagement = () => {
     });
   };
 
-  const handleCreateCircle = (e: React.FormEvent) => {
+  const handleCreateCircle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCircleName || !newCirclePrincipal) return;
 
-    // Logic: Map selected members to slots 1...N. Remaining slots are just implicit or logic-handled.
-    // In our type system, `members` array only contains actual members.
-    // The UI will render empty slots based on `totalSlots`.
-    
+    setIsSubmitting(true);
+
     const initialMembers: CircleMember[] = selectedMemberIds.map((mid, index) => ({
         memberId: mid,
         slotNumber: index + 1,
         status: 'ALIVE',
     }));
 
+    // Note: 'id' here is just a placeholder to satisfy the Type.
+    // The AppContext.addCircle function will IGNORE this ID and let Supabase generate a UUID.
     const newCircle: ShareCircle = {
-      id: `c-${Date.now()}`,
+      id: '', 
       name: newCircleName,
       principal: Number(newCirclePrincipal),
-      totalSlots: targetSlots, // Total slots defined here
+      totalSlots: targetSlots,
       type: newCircleType,
       period: newCirclePeriod,
       startDate: startDate,
@@ -96,7 +97,9 @@ const CircleManagement = () => {
       ]
     };
 
-    addCircle(newCircle);
+    await addCircle(newCircle);
+    
+    setIsSubmitting(false);
     setIsCreateModalOpen(false);
     
     // Reset
@@ -423,9 +426,10 @@ const CircleManagement = () => {
               <button
                 type="submit"
                 form="create-circle-form"
-                className="flex-1 py-3 bg-blue-600 rounded-2xl text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all transform hover:scale-[1.02]"
+                disabled={isSubmitting}
+                className="flex-1 py-3 bg-blue-600 rounded-2xl text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2"
               >
-                ยืนยันสร้างวง
+                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : 'ยืนยันสร้างวง'}
               </button>
             </div>
           </div>

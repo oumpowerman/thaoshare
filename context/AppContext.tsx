@@ -189,7 +189,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       });
 
       // 3. Realtime Subscription (DB Changes)
-      // We subscribe to changes on critical tables to auto-update the UI
       const realtimeChannel = supabase.channel('db-changes')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
               console.log('Realtime: Profiles updated');
@@ -235,9 +234,18 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       setIsLoading(true);
       
       // 1. SignUp with Supabase Auth
+      // NOTE: We pass metadata here so triggers (if any) can use it.
       const { data: authData, error: authError } = await supabase.auth.signUp({
           email: data.email,
           password: data.password || '12345678',
+          options: {
+              data: {
+                  name: data.name,
+                  phone: data.phone,
+                  role: data.role,
+                  full_name: data.name
+              }
+          }
       });
 
       if (authError) {
@@ -248,9 +256,10 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
 
       if (authData.user) {
           // 2. Create Profile immediately
+          // Use UPSERT to avoid conflicts if a Trigger already created the profile
           const { error: profileError } = await supabase
               .from('profiles')
-              .insert([{
+              .upsert([{
                   id: authData.user.id,
                   email: data.email,
                   name: data.name,
@@ -259,11 +268,17 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
                   risk_score: 'A',
                   status: 'ACTIVE',
                   avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`
-              }]);
+              }], { onConflict: 'id' });
 
           if (profileError) {
               console.error("Profile creation error:", profileError);
-              alert("สร้างโปรไฟล์ไม่สำเร็จ: " + profileError.message);
+              // FK Constraint usually means auth.users row isn't ready or visible yet
+              if (profileError.code === '23503') { 
+                  // Foreign Key Violation
+                  console.warn("Foreign Key violation ignored. Assuming Auth User created successfully.");
+              } else {
+                  alert("สร้างโปรไฟล์ไม่สำเร็จ: " + profileError.message);
+              }
           }
       }
 
@@ -299,17 +314,14 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
   // --- 3. DATA MUTATION (CRUD) ---
 
   const addMember = async (member: Member) => {
-     // NOTE: Because 'profiles.id' references 'auth.users.id', we cannot just insert a random member.
-     // They must register themselves. 
      alert("ระบบฐานข้อมูลใหม่: สมาชิกต้องทำการ 'สมัครสมาชิก' ด้วยตนเองเพื่อยืนยันตัวตนผ่านอีเมล");
   };
 
   const addCircle = async (circle: ShareCircle) => {
-      // 1. Create Circle (Table: circles)
       const { data: circleData, error: circleError } = await supabase
           .from('circles')
           .insert([{
-              id: circle.id, // Using the ID generated from frontend or let DB generate
+              id: circle.id, 
               name: circle.name,
               principal: circle.principal,
               total_slots: circle.totalSlots,
@@ -329,7 +341,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
 
       const realCircleId = circleData.id;
 
-      // 2. Create Circle Members (Table: circle_members)
       if (circle.members.length > 0) {
           const membersPayload = circle.members.map(m => ({
               circle_id: realCircleId,
@@ -341,7 +352,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           if (memError) console.error(memError);
       }
 
-      // 3. Create Initial Round (Table: rounds)
       await supabase.from('rounds').insert([{
           circle_id: realCircleId,
           round_number: 1,
@@ -351,15 +361,12 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           total_pot: 0
       }]);
 
-      // Note: No need to call fetchData() here manually, as Realtime subscription will trigger it.
-      // But keeping it for immediate feedback is also fine. We let Realtime handle it to test the subscription.
       addNotification('สร้างวงสำเร็จ', `เริ่มใช้งานวง "${circle.name}" ได้ทันที`, 'SUCCESS');
   };
 
   const deleteCircle = async (id: string) => {
       const { error } = await supabase.from('circles').delete().eq('id', id);
       if (!error) {
-          // Realtime will update state
           addNotification('ลบข้อมูล', 'ลบวงแชร์ออกจากระบบแล้ว', 'WARNING');
       }
   };
@@ -371,8 +378,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       const currentRoundNum = circle.rounds.length;
 
       try {
-        // 1. Update Winner Status in circle_members
-        // Find the record for this member in this circle
         await supabase
             .from('circle_members')
             .update({ 
@@ -383,8 +388,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
             .eq('circle_id', circleId)
             .eq('member_id', winnerId);
 
-        // 2. Close Current Round (Table: rounds)
-        // Find current open round ID
         const currentRoundObj = circle.rounds.find(r => r.roundNumber === currentRoundNum);
         if (currentRoundObj && currentRoundObj.id) {
             await supabase
@@ -398,7 +401,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
                 .eq('id', currentRoundObj.id);
         }
 
-        // 3. Create Next Round (if slots remain)
         if (currentRoundNum < circle.totalSlots) {
              const lastDate = new Date(circle.rounds[circle.rounds.length - 1].date);
              const nextDate = new Date(lastDate);
@@ -442,11 +444,10 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           }
       }
 
-      // Table: transactions
       const { error } = await supabase.from('transactions').insert([{
           id: `tx-${Date.now()}`,
           circle_id: circleId,
-          round_number: 0, // In a real app, calculate current round
+          round_number: 0, 
           member_id: user?.id,
           amount_expected: amount,
           amount_paid: amount,

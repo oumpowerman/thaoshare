@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, Loader2, ArrowLeft, KeyRound, Phone, User, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, Loader2, ArrowLeft, KeyRound, Phone, User, CheckCircle, ShieldCheck, Users } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 
 type Mode = 'LOGIN' | 'REGISTER';
@@ -174,12 +174,35 @@ const Login = () => {
               </div>
           ) : (
               <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="flex gap-3 mb-4 p-1 bg-slate-50 rounded-2xl">
-                      <button type="button" onClick={() => setRole('ADMIN')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${role === 'ADMIN' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                          ท้าวแชร์
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                      <button
+                          type="button"
+                          onClick={() => setRole('ADMIN')}
+                          className={`relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200 group ${
+                              role === 'ADMIN' 
+                              ? 'border-blue-500 bg-blue-50/50 text-blue-700 shadow-md shadow-blue-500/10' 
+                              : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'
+                          }`}
+                      >
+                          {role === 'ADMIN' && <div className="absolute top-2 right-2 text-blue-500"><CheckCircle size={16} className="fill-blue-100" /></div>}
+                          <ShieldCheck size={32} className={`mb-2 transition-transform group-hover:scale-110 ${role === 'ADMIN' ? 'text-blue-500' : 'text-slate-300'}`} />
+                          <span className="text-xs font-bold uppercase tracking-wider">ท้าวแชร์</span>
+                          <span className="text-[10px] opacity-70 font-medium mt-0.5">ผู้ดูแลวง</span>
                       </button>
-                      <button type="button" onClick={() => setRole('USER')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${role === 'USER' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                          ลูกแชร์
+
+                      <button
+                          type="button"
+                          onClick={() => setRole('USER')}
+                          className={`relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200 group ${
+                              role === 'USER' 
+                              ? 'border-emerald-500 bg-emerald-50/50 text-emerald-700 shadow-md shadow-emerald-500/10' 
+                              : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'
+                          }`}
+                      >
+                          {role === 'USER' && <div className="absolute top-2 right-2 text-emerald-500"><CheckCircle size={16} className="fill-emerald-100" /></div>}
+                          <Users size={32} className={`mb-2 transition-transform group-hover:scale-110 ${role === 'USER' ? 'text-emerald-500' : 'text-slate-300'}`} />
+                          <span className="text-xs font-bold uppercase tracking-wider">ลูกแชร์</span>
+                          <span className="text-[10px] opacity-70 font-medium mt-0.5">สมาชิก</span>
                       </button>
                   </div>
 

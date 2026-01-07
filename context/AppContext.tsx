@@ -18,6 +18,7 @@ interface AppContextType {
   transactions: Transaction[];
   notifications: AppNotification[];
   isLoading: boolean;
+  error: string | null;
   login: (email: string, password?: string) => Promise<void>;
   register: (data: RegisterData) => Promise<{ success: boolean; message?: string }>;
   updateProfile: (data: Partial<User>) => void;
@@ -35,6 +36,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider = ({ children }: { children?: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const [members, setMembers] = useState<Member[]>([]);
   const [circles, setCircles] = useState<ShareCircle[]>([]);
@@ -132,8 +134,9 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           }));
           setTransactions(mappedTx);
 
-      } catch (err) {
+      } catch (err: any) {
           console.error("Error fetching data:", err);
+          throw err; // Re-throw to be caught by initializeAuth
       }
   };
 
@@ -162,24 +165,48 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
   };
 
   useEffect(() => {
-      // 1. Check active session & Initial Fetch
       const initializeAuth = async () => {
           setIsLoading(true);
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-              await fetchCurrentUserProfile(session.user.id);
-              await fetchData();
+          setError(null);
+          try {
+              // Initial connection check (optional, but good for debugging)
+              // If keys are completely wrong, this usually fails fast
+              const { data: { session }, error: authError } = await supabase.auth.getSession();
+              if (authError) throw authError;
+
+              if (session) {
+                  await fetchCurrentUserProfile(session.user.id);
+                  await fetchData();
+              }
+          } catch (err: any) {
+              console.error("Initialization Error:", err);
+              // Handle specific Supabase error codes if needed
+              const msg = err.message || 'ไม่สามารถเชื่อมต่อกับระบบฐานข้อมูลได้';
+              // Check if it looks like a missing URL/Key error
+              if (msg.includes('supabaseUrl is required') || msg.includes('fetch')) {
+                   setError('ไม่พบการตั้งค่าฐานข้อมูล (Supabase) หรือการเชื่อมต่อล้มเหลว กรุณาตรวจสอบ Environment Variables');
+              } else {
+                   setError(`เกิดข้อผิดพลาดในการโหลดข้อมูล: ${msg}`);
+              }
+          } finally {
+              setIsLoading(false);
           }
-          setIsLoading(false);
       };
 
       initializeAuth();
 
-      // 2. Auth State Listener
+      // Auth State Listener
       const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (event === 'SIGNED_IN' && session) {
-              await fetchCurrentUserProfile(session.user.id);
-              await fetchData();
+              setIsLoading(true);
+              try {
+                await fetchCurrentUserProfile(session.user.id);
+                await fetchData();
+              } catch(e) {
+                 console.error(e);
+              } finally {
+                 setIsLoading(false);
+              }
           } else if (event === 'SIGNED_OUT') {
               setUser(null);
               setMembers([]);
@@ -188,7 +215,7 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
           }
       });
 
-      // 3. Realtime Subscription (DB Changes)
+      // Realtime Subscription (DB Changes)
       const realtimeChannel = supabase.channel('db-changes')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
               console.log('Realtime: Profiles updated');
@@ -233,8 +260,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
   const register = async (data: RegisterData): Promise<{ success: boolean; message?: string }> => {
       setIsLoading(true);
       
-      // 1. SignUp with Supabase Auth
-      // NOTE: We pass metadata here so triggers (if any) can use it.
       const { data: authData, error: authError } = await supabase.auth.signUp({
           email: data.email,
           password: data.password || '12345678',
@@ -255,8 +280,6 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
       }
 
       if (authData.user) {
-          // 2. Create Profile immediately
-          // Use UPSERT to avoid conflicts if a Trigger already created the profile
           const { error: profileError } = await supabase
               .from('profiles')
               .upsert([{
@@ -272,9 +295,7 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
 
           if (profileError) {
               console.error("Profile creation error:", profileError);
-              // FK Constraint usually means auth.users row isn't ready or visible yet
               if (profileError.code === '23503') { 
-                  // Foreign Key Violation
                   console.warn("Foreign Key violation ignored. Assuming Auth User created successfully.");
               } else {
                   alert("สร้างโปรไฟล์ไม่สำเร็จ: " + profileError.message);
@@ -481,7 +502,7 @@ export const AppProvider = ({ children }: { children?: ReactNode }) => {
 
   return (
     <AppContext.Provider value={{ 
-      user, members, circles, transactions, notifications, isLoading,
+      user, members, circles, transactions, notifications, isLoading, error,
       login, register, updateProfile, logout, addMember, addCircle, deleteCircle, recordBid, submitPayment, markNotificationsAsRead
     }}>
       {children}
